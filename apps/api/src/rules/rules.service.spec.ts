@@ -56,4 +56,28 @@ describe("RulesService", () => {
     expect(result.resultReason).toBe("CHECKMATE");
     expect(result.winner).toBe("RED");
   });
+
+  it("detects a stalemate terminal position (side to move is not in check)", () => {
+    // 黑方只剩将 e9，三个落点 d9/e8/f9 分别被红马 c7 与 h8 控制，且将不在将军中；
+    // 红象 e3 挡住红将 e0 与黑将 e9 的照面。红将 e0->e1 后黑方无合法着法。
+    const fen = "4k4/7N1/2N6/9/9/9/4B4/9/9/4K4 w - - 0 1";
+    const result = rules.applyMove(fen, "e0e1");
+    expect(result.resultReason).toBe("STALEMATE");
+    expect(result.winner).toBe("RED");
+  });
+
+  it("detects a rule draw when neither side has winning material", () => {
+    // 双方各剩将+单士，ffish 判为无子可胜的和棋 (1/2-1/2)。
+    const fen = "3ak4/9/9/9/9/9/9/9/9/3AK4 w - - 0 1";
+    const result = rules.applyMove(fen, "d0e1");
+    expect(result.resultReason).toBe("RULE_DRAW");
+    expect(result.winner).toBeNull();
+  });
+
+  it("keeps the game running after a non-terminal move", () => {
+    const result = rules.applyMove(rules.getInitialFen(), "a0a1");
+    expect(result.winner).toBeNull();
+    expect(result.resultReason).toBeNull();
+    expect(result.legalMoves.length).toBeGreaterThan(0);
+  });
 });

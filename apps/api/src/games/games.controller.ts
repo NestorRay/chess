@@ -1,11 +1,15 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Req } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
 import { createGameSchema } from "@xiangqi/contracts";
+import { GamesGateway } from "./games.gateway";
 import { GamesService } from "./games.service";
 
 @Controller("api")
 export class GamesController {
-  constructor(private readonly games: GamesService) {}
+  constructor(
+    private readonly games: GamesService,
+    private readonly gateway: GamesGateway,
+  ) {}
 
   @Post("games")
   create(@Req() req: Request, @Body() body: unknown) {
@@ -15,13 +19,19 @@ export class GamesController {
   }
 
   @Get("games/:id")
-  state(@Req() req: Request, @Param("id") id: string) {
-    return this.games.state(id, req.identity);
+  async state(@Req() req: Request, @Param("id") id: string) {
+    const connectedIdentityKeys = await this.gateway.connectedIdentityKeysFor(id);
+    return this.games.state(id, req.identity, connectedIdentityKeys);
   }
 
   @Get("history")
-  history(@Req() req: Request) {
-    return this.games.history(req.identity);
+  history(@Req() req: Request, @Query("offset") offset?: string, @Query("limit") limit?: string) {
+    const parsedOffset = Number.parseInt(offset ?? "", 10);
+    const parsedLimit = Number.parseInt(limit ?? "", 10);
+    return this.games.history(req.identity, {
+      offset: Number.isNaN(parsedOffset) ? 0 : parsedOffset,
+      limit: Number.isNaN(parsedLimit) ? 20 : parsedLimit,
+    });
   }
 
   @Get("replays/:token")

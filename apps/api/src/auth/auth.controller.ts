@@ -1,7 +1,8 @@
-import { BadRequestException, Body, Controller, Get, Post, Req } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
 import type { Request } from "express";
 import { loginSchema, registerSchema } from "@xiangqi/contracts";
 import { AuthService } from "./auth.service";
+import { AuthThrottleGuard } from "./throttle.guard";
 
 @Controller("api/auth")
 export class AuthController {
@@ -15,6 +16,7 @@ export class AuthController {
   }
 
   @Post("register")
+  @UseGuards(AuthThrottleGuard)
   register(@Req() req: Request, @Body() body: unknown) {
     const parsed = registerSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.issues[0]?.message);
@@ -22,6 +24,7 @@ export class AuthController {
   }
 
   @Post("login")
+  @UseGuards(AuthThrottleGuard)
   login(@Req() req: Request, @Body() body: unknown) {
     const parsed = loginSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException(parsed.error.issues[0]?.message);

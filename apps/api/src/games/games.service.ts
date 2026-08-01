@@ -5,11 +5,12 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { randomInt } from "node:crypto";
 import { GameStatus, Prisma, Side } from "@prisma/client";
 import type {
   DrawResponseInput,
+  GameHistory,
   GameState,
-  GameSummary,
   JoinGameInput,
   ReplayData,
   ResignGameInput,
@@ -50,6 +51,7 @@ export class GamesService {
             },
           },
         });
+        await this.prisma.guestIdentity.update({ where: { id: identity.guestId }, data: { nickname } });
         return { id: game.id, code: game.code, replayToken: game.replayToken };
       } catch (error) {
         if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
@@ -59,41 +61,50 @@ export class GamesService {
   }
 
   async join(identity: RequestIdentity, input: JoinGameInput) {
-    return this.prisma.$transaction(async (tx) => {
-      const game = await tx.game.findUnique({
-        where: { code: input.code },
-        include: { participants: true },
-      });
-      if (!game) throw new NotFoundException("对局码不存在");
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const game = await tx.game.findUnique({
+          where: { code: input.code },
+          include: { participants: true },
+        });
+        if (!game) throw new NotFoundException("对局码不存在");
 
-      const existing = game.participants.find((participant) => this.matches(participant, identity));
-      if (existing) {
-        if (existing.nickname !== input.nickname) {
-          await tx.gameParticipant.update({ where: { id: existing.id }, data: { nickname: input.nickname } });
+        const existing = game.participants.find((participant) => this.matches(participant, identity));
+        if (existing) {
+          if (existing.nickname !== input.nickname) {
+            await tx.gameParticipant.update({ where: { id: existing.id }, data: { nickname: input.nickname } });
+          }
+          await tx.guestIdentity.update({ where: { id: identity.guestId }, data: { nickname: input.nickname } });
+          return { id: game.id, code: game.code, side: existing.side };
         }
-        return { id: game.id, code: game.code, side: existing.side };
+
+        if (game.status === "FINISHED") throw new ConflictException("该对局已经结束");
+        if (game.participants.length >= 2) throw new ConflictException("该对局已有两名棋手");
+
+        const occupied = new Set(game.participants.map((participant) => participant.side));
+        const side: Side = occupied.has("RED") ? "BLACK" : "RED";
+        await tx.gameParticipant.create({
+          data: {
+            gameId: game.id,
+            side,
+            nickname: input.nickname,
+            guestIdentityId: identity.guestId,
+            userId: identity.userId,
+          },
+        });
+        await tx.game.update({
+          where: { id: game.id },
+          data: { status: "ACTIVE", startedAt: game.startedAt ?? new Date() },
+        });
+        await tx.guestIdentity.update({ where: { id: identity.guestId }, data: { nickname: input.nickname } });
+        return { id: game.id, code: game.code, side };
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException("该对局刚刚已有棋手加入，请刷新后重试");
       }
-
-      if (game.status === "FINISHED") throw new ConflictException("该对局已经结束");
-      if (game.participants.length >= 2) throw new ConflictException("该对局已有两名棋手");
-
-      const occupied = new Set(game.participants.map((participant) => participant.side));
-      const side: Side = occupied.has("RED") ? "BLACK" : "RED";
-      await tx.gameParticipant.create({
-        data: {
-          gameId: game.id,
-          side,
-          nickname: input.nickname,
-          guestIdentityId: identity.guestId,
-          userId: identity.userId,
-        },
-      });
-      await tx.game.update({
-        where: { id: game.id },
-        data: { status: "ACTIVE", startedAt: game.startedAt ?? new Date() },
-      });
-      return { id: game.id, code: game.code, side };
-    });
+      throw error;
+    }
   }
 
   async state(gameId: string, identity: RequestIdentity, connectedIdentityKeys = new Set<string>()): Promise<GameState> {
@@ -179,7 +190,9 @@ export class GamesService {
 
   async offerDraw(identity: RequestIdentity, input: ResignGameInput) {
     const { game, participant } = await this.requireActiveParticipant(input.gameId, identity);
-    await this.prisma.game.update({ where: { id: game.id }, data: { drawOfferedBy: participant.side } });
+    if (game.drawOfferedBy !== participant.side) {
+      await this.prisma.game.update({ where: { id: game.id }, data: { drawOfferedBy: participant.side } });
+    }
     return { gameId: game.id };
   }
 
@@ -197,26 +210,34 @@ export class GamesService {
     return { gameId: game.id, ended: input.accept };
   }
 
-  async history(identity: RequestIdentity): Promise<GameSummary[]> {
+  async history(identity: RequestIdentity, options: { offset?: number; limit?: number } = {}): Promise<GameHistory> {
+    const limit = Math.min(Math.max(options.limit ?? 20, 1), 50);
+    const offset = Math.max(options.offset ?? 0, 0);
     const participants = await this.prisma.gameParticipant.findMany({
       where: identity.userId
         ? { OR: [{ userId: identity.userId }, { guestIdentityId: identity.guestId }] }
         : { guestIdentityId: identity.guestId },
       include: { game: { include: { participants: true } } },
       orderBy: { game: { updatedAt: "desc" } },
+      skip: offset,
+      take: limit + 1,
     });
-    return participants.map(({ game, side, nickname }) => ({
-      id: game.id,
-      code: game.code,
-      status: game.status,
-      opponent: game.participants.find((item) => item.side !== side)?.nickname ?? null,
-      nickname,
-      playerSide: side,
-      winner: game.winner,
-      resultReason: game.resultReason,
-      updatedAt: game.updatedAt.toISOString(),
-      replayToken: game.status === "FINISHED" ? game.replayToken : null,
-    }));
+    const hasMore = participants.length > limit;
+    return {
+      hasMore,
+      items: participants.slice(0, limit).map(({ game, side, nickname }) => ({
+        id: game.id,
+        code: game.code,
+        status: game.status,
+        opponent: game.participants.find((item) => item.side !== side)?.nickname ?? null,
+        nickname,
+        playerSide: side,
+        winner: game.winner,
+        resultReason: game.resultReason,
+        updatedAt: game.updatedAt.toISOString(),
+        replayToken: game.status === "FINISHED" ? game.replayToken : null,
+      })),
+    };
   }
 
   async replay(token: string): Promise<ReplayData> {
@@ -284,7 +305,7 @@ export class GamesService {
   private generateCode() {
     let code = "";
     for (let index = 0; index < 6; index += 1) {
-      code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]!;
+      code += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)]!;
     }
     return code;
   }

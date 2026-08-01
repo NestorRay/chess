@@ -112,6 +112,11 @@ export interface GameSummary {
   replayToken: string | null;
 }
 
+export interface GameHistory {
+  items: GameSummary[];
+  hasMore: boolean;
+}
+
 export interface AuthUser {
   id: string;
   username: string;

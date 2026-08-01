@@ -45,7 +45,7 @@ docker compose ps
 curl https://your-domain.example/api/health
 ```
 
-Caddy 自动申请 TLS 证书并代理 HTTP 与 WebSocket。应用容器启动时会执行 `prisma migrate deploy`。
+Caddy 代理 HTTP 与 WebSocket；默认配置 `http://` 不启用 TLS（见 `.env.production.example` 的端口说明）。应用容器启动时会执行 `prisma migrate deploy`。
 
 备份与恢复：
 
@@ -67,6 +67,6 @@ pnpm test:e2e
 
 ## 安全与许可证
 
-- 会话使用随机 HttpOnly Cookie，数据库只保存 HMAC 摘要；生产环境强制 Secure 和 SameSite=Lax。
+- 会话使用随机 HttpOnly Cookie，数据库只保存 HMAC 摘要；Cookie 同时设置 SameSite=Lax。默认部署在 HTTP 上，`COOKIE_SECURE=false`；若通过 HTTPS 对外提供服务，请在 `.env` 中设置 `COOKIE_SECURE=true` 强制 Secure。
 - 密码使用 Argon2id 哈希，所有 Socket 落子都重新校验身份、回合、棋步序号和规则。
 - `ffish` / Fairy-Stockfish 使用 GPL-3.0。自托管服务可以使用；若分发闭源软件或容器镜像，请先评估相应许可证义务。

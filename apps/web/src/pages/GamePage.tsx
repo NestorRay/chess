@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Copy, Flag, Handshake, Home, LoaderCircle, Wifi, WifiOff } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { GameState, Side } from "@xiangqi/contracts";
@@ -16,6 +16,7 @@ export function GamePage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { game, connection, message, setGame, setConnection, setMessage, reset } = useGameStore();
+  const gameIdRef = useRef<string | null>(null);
   const saved = useMemo(() => {
     try { return JSON.parse(localStorage.getItem(`xiangqi:game:${gameId}`) ?? "null") as { code: string; nickname: string } | null; }
     catch { return null; }
@@ -34,13 +35,23 @@ export function GamePage() {
     const onDisconnect = () => setConnection("disconnected");
     const onState = (state: GameState) => {
       if (!active) return;
+      gameIdRef.current = state.id;
       setGame(state);
       setMessage(null);
       localStorage.setItem(`xiangqi:game:${state.id}`, JSON.stringify({ code: state.code, nickname }));
       if (gameId === "join") navigate(`/game/${state.id}?code=${state.code}&nickname=${encodeURIComponent(nickname)}`, { replace: true });
     };
     const onError = ({ message: nextMessage }: { message: string }) => setMessage(nextMessage);
-    const onRejected = ({ reason }: { reason: string }) => setMessage(reason);
+    const onRejected = ({ reason }: { reason: string }) => {
+      setMessage(reason);
+      // 局面序号冲突被拒后，主动拉取服务端最新局面，避免玩家手动刷新
+      const id = gameIdRef.current;
+      if (!id) return;
+      void api<GameState>(`/api/games/${id}`).then((state) => {
+        if (!active) return;
+        setGame(state);
+      }).catch(() => { /* 拉取失败时保留 rejected 提示 */ });
+    };
 
     gameSocket.on("connect", onConnect);
     gameSocket.on("disconnect", onDisconnect);

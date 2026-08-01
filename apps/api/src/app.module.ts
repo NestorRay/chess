@@ -25,6 +25,7 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(SessionMiddleware)
+      .exclude({ path: "api/health", method: RequestMethod.GET })
       .forRoutes({ path: "api/{*path}", method: RequestMethod.ALL });
   }
 }
