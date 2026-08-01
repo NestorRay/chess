@@ -1,15 +1,26 @@
 # 楚河棋局
 
-一个面向浏览器的双人在线中国象棋程序。两名玩家输入同一六位对局码即可实时对弈，服务端负责中国象棋规则校验、将死判定、对局持久化和逐手复盘。
+一个可自行部署的浏览器双人中国象棋应用。玩家通过六位对局码进入同一棋局，服务端负责身份会话、规则校验、实时同步、结果判定和棋谱持久化。
 
-## 功能
+## 主要功能
 
-- 游客昵称直接对局，也可注册账号并归档当前设备的游客棋谱。
-- Socket.IO 房间实时同步；刷新或短暂断线后按会话恢复席位和局面。
-- Fairy-Stockfish `ffish` 在服务端生成合法着法，客户端不能绕过规则提交棋步。
-- 支持将死、困毙、认输、规则和棋和双方协议和棋。
-- PostgreSQL 保存每一步及落子后 FEN，复盘页可跳转到任意棋步。
-- React 响应式 SVG 棋盘，适配桌面和手机浏览器。
+- 游客昵称直接开局，也可注册账号归档当前设备上的游客棋谱。
+- Socket.IO 房间实时同步，刷新或短暂断线后可按会话恢复席位和局面。
+- Fairy-Stockfish `ffish` 在服务端生成并校验合法着法。
+- 支持将死、困毙、认输、规则和棋及双方协议和棋。
+- PostgreSQL 保存完整着法、落子后 FEN 和可分享的复盘记录。
+- React 响应式 SVG 棋盘，兼容桌面端和移动端浏览器。
+
+## 技术栈
+
+| 模块 | 技术 |
+| --- | --- |
+| Web | React 19、Vite、Zustand、TanStack Query、Socket.IO Client |
+| API | NestJS 11、Socket.IO、Prisma、Zod |
+| 规则引擎 | Fairy-Stockfish / `ffish` |
+| 数据库 | PostgreSQL 17 |
+| 工程化 | TypeScript、pnpm workspace、Vitest、Playwright |
+| 部署 | Docker Compose、Caddy |
 
 ## 项目结构
 
@@ -18,12 +29,18 @@ apps/web                 React + Vite 前端
 apps/api                 NestJS + Socket.IO + Prisma 后端
 packages/contracts       前后端共享的 Zod schema 和 TypeScript 类型
 e2e                      Playwright 双浏览器对局测试
-docker-compose.yml       Ubuntu 单机生产部署
+docker-compose.yml       单机容器部署编排
 ```
 
 ## 本地开发
 
-需要 Node.js 24、pnpm 11 和 PostgreSQL。
+### 环境要求
+
+- Node.js 24
+- pnpm 11
+- PostgreSQL
+
+### 启动步骤
 
 ```powershell
 pnpm install
@@ -33,40 +50,71 @@ pnpm db:migrate
 pnpm dev
 ```
 
-默认前端地址为 `http://localhost:5173`，API 为 `http://localhost:3000`。Vite 会代理 `/api` 和 `/socket.io`。
+启动前请确保 `.env` 中的 `DATABASE_URL` 指向可用的 PostgreSQL 数据库，并将 `SESSION_SECRET` 替换为至少 32 字符的随机值。
 
-## Ubuntu 部署
+- Web：`http://localhost:5173`
+- API：`http://localhost:3000`
+- 健康检查：`http://localhost:3000/api/health`
 
-安装 Docker Engine 和 Compose 插件，将 `.env.production.example` 复制为 `.env`，填写域名、数据库密码和至少 32 字符的会话密钥，然后运行：
+Vite 开发服务器会将 `/api` 和 `/socket.io` 请求代理到 API 服务。
+
+## 环境变量
+
+| 变量 | 用途 | 开发默认值 |
+| --- | --- | --- |
+| `PORT` | API 监听端口 | `3000` |
+| `APP_ORIGIN` | 允许访问 API/WebSocket 的前端来源 | `http://localhost:5173` |
+| `DATABASE_URL` | Prisma 使用的 PostgreSQL 连接串 | 见 `.env.example` |
+| `SESSION_SECRET` | 会话令牌 HMAC 密钥 | 必须替换 |
+| `COOKIE_SECURE` | 是否只通过 HTTPS 发送会话 Cookie | `false` |
+
+## Docker 部署
+
+复制生产环境示例并填写域名、数据库密码和会话密钥：
 
 ```bash
+cp .env.production.example .env
 docker compose up -d --build
 docker compose ps
-curl https://your-domain.example/api/health
+curl http://your-domain.example:8080/api/health
 ```
 
-Caddy 自动申请 TLS 证书并代理 HTTP 与 WebSocket。应用容器启动时会执行 `prisma migrate deploy`。
+默认配置通过 Caddy 在 `HTTP_PORT=8080` 提供 HTTP 与 WebSocket 反向代理，不会自动启用 TLS。若要公开部署到互联网，请修改 `Caddyfile` 使用 HTTPS，并将应用容器的 `COOKIE_SECURE` 设置为 `true`。
 
-备份与恢复：
+应用容器启动时会自动执行 `prisma migrate deploy`。
+
+### 备份与恢复
 
 ```bash
 docker compose exec -T db pg_dump -U xiangqi -d xiangqi -Fc > xiangqi.dump
 docker compose exec -T db pg_restore -U xiangqi -d xiangqi --clean --if-exists < xiangqi.dump
 ```
 
-## 验证
+## 质量检查
 
 ```powershell
 pnpm typecheck
 pnpm test
-$env:E2E_BASE_URL="https://your-test-domain.example"
+pnpm build
+```
+
+运行端到端测试：
+
+```powershell
+pnpm exec playwright install chromium
+$env:E2E_BASE_URL="http://localhost:5173"
 pnpm test:e2e
 ```
 
-首次运行 Playwright 前执行 `pnpm exec playwright install chromium`。端到端测试会创建真实游客对局并写入测试数据库，不应指向生产环境。
+端到端测试会创建真实游客对局并写入目标数据库，请勿将其指向生产环境。
 
-## 安全与许可证
+## 分支
 
-- 会话使用随机 HttpOnly Cookie，数据库只保存 HMAC 摘要；生产环境强制 Secure 和 SameSite=Lax。
-- 密码使用 Argon2id 哈希，所有 Socket 落子都重新校验身份、回合、棋步序号和规则。
-- `ffish` / Fairy-Stockfish 使用 GPL-3.0。自托管服务可以使用；若分发闭源软件或容器镜像，请先评估相应许可证义务。
+- `main`：稳定基线和项目文档。
+- `dev`：正在集成和验证的最新改动。
+
+## 安全与许可证说明
+
+- 会话使用随机 HttpOnly Cookie，数据库仅保存令牌的 HMAC 摘要。
+- 密码使用 Argon2id 哈希；所有 Socket 落子都会重新校验身份、回合、棋步序号和规则。
+- `ffish` / Fairy-Stockfish 使用 GPL-3.0。分发软件或容器镜像前，请评估对应的许可证义务。
