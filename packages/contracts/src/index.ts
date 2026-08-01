@@ -115,6 +115,7 @@ export interface GameSummary {
 export interface GameHistory {
   items: GameSummary[];
   hasMore: boolean;
+  nextCursor: string | null;
 }
 
 export interface AuthUser {

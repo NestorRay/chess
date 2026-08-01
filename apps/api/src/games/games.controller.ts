@@ -25,11 +25,10 @@ export class GamesController {
   }
 
   @Get("history")
-  history(@Req() req: Request, @Query("offset") offset?: string, @Query("limit") limit?: string) {
-    const parsedOffset = Number.parseInt(offset ?? "", 10);
+  history(@Req() req: Request, @Query("cursor") cursor?: string, @Query("limit") limit?: string) {
     const parsedLimit = Number.parseInt(limit ?? "", 10);
     return this.games.history(req.identity, {
-      offset: Number.isNaN(parsedOffset) ? 0 : parsedOffset,
+      cursor: cursor || undefined,
       limit: Number.isNaN(parsedLimit) ? 20 : parsedLimit,
     });
   }

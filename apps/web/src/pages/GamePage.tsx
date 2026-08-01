@@ -17,6 +17,8 @@ export function GamePage() {
   const navigate = useNavigate();
   const { game, connection, message, setGame, setConnection, setMessage, reset } = useGameStore();
   const gameIdRef = useRef<string | null>(null);
+  const stateRevisionRef = useRef(0);
+  const resyncRequestRef = useRef(0);
   const saved = useMemo(() => {
     try { return JSON.parse(localStorage.getItem(`xiangqi:game:${gameId}`) ?? "null") as { code: string; nickname: string } | null; }
     catch { return null; }
@@ -35,6 +37,7 @@ export function GamePage() {
     const onDisconnect = () => setConnection("disconnected");
     const onState = (state: GameState) => {
       if (!active) return;
+      stateRevisionRef.current += 1;
       gameIdRef.current = state.id;
       setGame(state);
       setMessage(null);
@@ -47,8 +50,11 @@ export function GamePage() {
       // 局面序号冲突被拒后，主动拉取服务端最新局面，避免玩家手动刷新
       const id = gameIdRef.current;
       if (!id) return;
+      const stateRevision = stateRevisionRef.current;
+      const requestRevision = ++resyncRequestRef.current;
       void api<GameState>(`/api/games/${id}`).then((state) => {
-        if (!active) return;
+        if (!active || stateRevisionRef.current !== stateRevision || resyncRequestRef.current !== requestRevision) return;
+        stateRevisionRef.current += 1;
         setGame(state);
       }).catch(() => { /* 拉取失败时保留 rejected 提示 */ });
     };

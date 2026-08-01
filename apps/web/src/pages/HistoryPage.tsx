@@ -9,12 +9,9 @@ const reasons: Record<string, string> = { CHECKMATE: "将死", STALEMATE: "困�
 export function HistoryPage() {
   const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey: ["history"],
-    queryFn: ({ pageParam }) => api<GameHistory>(`/api/history?offset=${pageParam}&limit=20`),
-    initialPageParam: 0,
-    getNextPageParam: (lastPage, allPages) => {
-      const total = allPages.reduce((sum, page) => sum + page.items.length, 0);
-      return lastPage.hasMore ? total : undefined;
-    },
+    queryFn: ({ pageParam }) => api<GameHistory>(`/api/history?limit=20${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
   const games = data?.pages.flatMap((page) => page.items) ?? [];
   return (

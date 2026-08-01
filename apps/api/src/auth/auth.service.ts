@@ -118,7 +118,7 @@ export class AuthService implements OnModuleInit {
     try {
       await this.prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } });
       await this.prisma.guestIdentity.deleteMany({
-        where: { sessions: { none: {} }, participants: { none: {} }, claimedById: null },
+        where: { sessions: { none: {} }, participants: { none: {} } },
       });
     } catch {
       // 清理是尽力而为的后台任务，失败不应影响主流程

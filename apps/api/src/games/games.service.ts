@@ -36,22 +36,25 @@ export class GamesService {
     const initialFen = this.rules.getInitialFen();
     for (let attempt = 0; attempt < 10; attempt += 1) {
       try {
-        const game = await this.prisma.game.create({
-          data: {
-            code: this.generateCode(),
-            initialFen,
-            currentFen: initialFen,
-            participants: {
-              create: {
-                side: "RED",
-                nickname,
-                guestIdentityId: identity.guestId,
-                userId: identity.userId,
+        const game = await this.prisma.$transaction(async (tx) => {
+          const created = await tx.game.create({
+            data: {
+              code: this.generateCode(),
+              initialFen,
+              currentFen: initialFen,
+              participants: {
+                create: {
+                  side: "RED",
+                  nickname,
+                  guestIdentityId: identity.guestId,
+                  userId: identity.userId,
+                },
               },
             },
-          },
+          });
+          await tx.guestIdentity.update({ where: { id: identity.guestId }, data: { nickname } });
+          return created;
         });
-        await this.prisma.guestIdentity.update({ where: { id: identity.guestId }, data: { nickname } });
         return { id: game.id, code: game.code, replayToken: game.replayToken };
       } catch (error) {
         if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
@@ -210,22 +213,24 @@ export class GamesService {
     return { gameId: game.id, ended: input.accept };
   }
 
-  async history(identity: RequestIdentity, options: { offset?: number; limit?: number } = {}): Promise<GameHistory> {
+  async history(identity: RequestIdentity, options: { cursor?: string; limit?: number } = {}): Promise<GameHistory> {
     const limit = Math.min(Math.max(options.limit ?? 20, 1), 50);
-    const offset = Math.max(options.offset ?? 0, 0);
     const participants = await this.prisma.gameParticipant.findMany({
       where: identity.userId
         ? { OR: [{ userId: identity.userId }, { guestIdentityId: identity.guestId }] }
         : { guestIdentityId: identity.guestId },
       include: { game: { include: { participants: true } } },
-      orderBy: { game: { updatedAt: "desc" } },
-      skip: offset,
+      orderBy: [{ joinedAt: "desc" }, { id: "desc" }],
+      cursor: options.cursor ? { id: options.cursor } : undefined,
+      skip: options.cursor ? 1 : 0,
       take: limit + 1,
     });
     const hasMore = participants.length > limit;
+    const page = participants.slice(0, limit);
     return {
       hasMore,
-      items: participants.slice(0, limit).map(({ game, side, nickname }) => ({
+      nextCursor: hasMore ? page.at(-1)?.id ?? null : null,
+      items: page.map(({ game, side, nickname }) => ({
         id: game.id,
         code: game.code,
         status: game.status,

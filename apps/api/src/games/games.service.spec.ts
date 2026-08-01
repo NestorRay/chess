@@ -73,6 +73,15 @@ describe("GamesService", () => {
     expect(prisma.game.update).toHaveBeenCalledWith({ where: { id: "g1" }, data: { drawOfferedBy: "RED" } });
   });
 
+  it("creates the game and updates the guest nickname in one transaction", async () => {
+    prisma.game.create.mockResolvedValue({ id: "g1", code: "ABC234", replayToken: "rt" });
+
+    await expect(service.create(identity, "乙")).resolves.toEqual({ id: "g1", code: "ABC234", replayToken: "rt" });
+
+    expect(prisma.$transaction).toHaveBeenCalledOnce();
+    expect(prisma.guestIdentity.update).toHaveBeenCalledWith({ where: { id: "g-b" }, data: { nickname: "乙" } });
+  });
+
   it("history paginates with a capped page size", async () => {
     const participant = (side: string) => ({
       id: side,
@@ -90,11 +99,17 @@ describe("GamesService", () => {
       },
     });
     prisma.gameParticipant.findMany.mockResolvedValue([participant("RED"), participant("BLACK")]);
-    const result = await service.history(identity, { offset: 0, limit: 1 });
+    const result = await service.history(identity, { cursor: "previous", limit: 1 });
     expect(prisma.gameParticipant.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ skip: 0, take: 2 }),
+      expect.objectContaining({
+        cursor: { id: "previous" },
+        orderBy: [{ joinedAt: "desc" }, { id: "desc" }],
+        skip: 1,
+        take: 2,
+      }),
     );
     expect(result.items).toHaveLength(1);
     expect(result.hasMore).toBe(true);
+    expect(result.nextCursor).toBe("RED");
   });
 });
