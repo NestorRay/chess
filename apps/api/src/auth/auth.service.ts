@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { ConflictException, Injectable, OnModuleInit, UnauthorizedException } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { argon2id, hash as hashPassword, verify as verifyPassword } from "argon2";
@@ -9,10 +9,17 @@ import type { RequestIdentity } from "./auth.types";
 
 const COOKIE_NAME = "xq_session";
 const SESSION_DAYS = 30;
+const SESSION_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit() {
+    await this.cleanupSessions();
+    const timer = setInterval(() => void this.cleanupSessions(), SESSION_CLEANUP_INTERVAL_MS);
+    timer.unref?.();
+  }
 
   async ensureHttpSession(req: Request, res: Response): Promise<RequestIdentity> {
     const existing = req.cookies?.[COOKIE_NAME] as string | undefined;
@@ -104,6 +111,18 @@ export class AuthService {
   async logout(identity: RequestIdentity) {
     await this.prisma.session.update({ where: { id: identity.sessionId }, data: { userId: null } });
     return { ok: true };
+  }
+
+  /** 删除已过期会话及不再被任何会话/对局引用的孤儿游客身份，防止 Session 表无限增长。 */
+  private async cleanupSessions() {
+    try {
+      await this.prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+      await this.prisma.guestIdentity.deleteMany({
+        where: { sessions: { none: {} }, participants: { none: {} } },
+      });
+    } catch {
+      // 清理是尽力而为的后台任务，失败不应影响主流程
+    }
   }
 
   private async resolveRawToken(rawToken: string): Promise<RequestIdentity | null> {

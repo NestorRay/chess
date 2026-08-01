@@ -79,6 +79,9 @@ docker compose ps
 curl http://your-domain.example:8080/api/health
 ```
 
+Caddy 代理 HTTP 与 WebSocket；默认配置 `http://` 不启用 TLS（见 `.env.production.example` 的端口说明）。应用容器启动时会执行 `prisma migrate deploy`。
+
+> 注意：`app` 容器只应通过 Caddy 对外暴露。若直接暴露 3000 端口，客户端可伪造 `X-Forwarded-For` 绕过按 IP 的登录限流。
 默认配置通过 Caddy 在 `HTTP_PORT=8080` 提供 HTTP 与 WebSocket 反向代理，不会自动启用 TLS。若要公开部署到互联网，请修改 `Caddyfile` 使用 HTTPS，并将应用容器的 `COOKIE_SECURE` 设置为 `true`。
 
 应用容器启动时会自动执行 `prisma migrate deploy`。
@@ -115,6 +118,6 @@ pnpm test:e2e
 
 ## 安全与许可证说明
 
-- 会话使用随机 HttpOnly Cookie，数据库仅保存令牌的 HMAC 摘要。
-- 密码使用 Argon2id 哈希；所有 Socket 落子都会重新校验身份、回合、棋步序号和规则。
-- `ffish` / Fairy-Stockfish 使用 GPL-3.0。分发软件或容器镜像前，请评估对应的许可证义务。
+- 会话使用随机 HttpOnly Cookie，数据库只保存 HMAC 摘要；Cookie 同时设置 SameSite=Lax。默认部署在 HTTP 上，`COOKIE_SECURE=false`；若通过 HTTPS 对外提供服务，请在 `.env` 中设置 `COOKIE_SECURE=true` 强制 Secure。
+- 密码使用 Argon2id 哈希，所有 Socket 落子都重新校验身份、回合、棋步序号和规则。
+- `ffish` / Fairy-Stockfish 使用 GPL-3.0。自托管服务可以使用；若分发闭源软件或容器镜像，请先评估相应许可证义务。
