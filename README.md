@@ -47,6 +47,8 @@ curl https://your-domain.example/api/health
 
 Caddy 代理 HTTP 与 WebSocket；默认配置 `http://` 不启用 TLS（见 `.env.production.example` 的端口说明）。应用容器启动时会执行 `prisma migrate deploy`。
 
+> 注意：`app` 容器只应通过 Caddy 对外暴露。若直接暴露 3000 端口，客户端可伪造 `X-Forwarded-For` 绕过按 IP 的登录限流。
+
 备份与恢复：
 
 ```bash

@@ -117,7 +117,13 @@ export class GamesGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private async broadcastState(gameId: string, event: "game:state" | "move:accepted" | "game:ended") {
     const sockets = (await this.server.in(gameId).fetchSockets()) as unknown as GameSocket[];
-    const connectedIds = await this.connectedIdentityKeysFor(gameId);
+    const connectedIds = new Set<string>();
+    for (const socket of sockets) {
+      const identity = socket.data.identity;
+      if (!identity) continue;
+      connectedIds.add(`g:${identity.guestId}`);
+      if (identity.userId) connectedIds.add(`u:${identity.userId}`);
+    }
     await Promise.all(sockets.map(async (socket) => {
       const identity = socket.data.identity;
       if (!identity) return;
