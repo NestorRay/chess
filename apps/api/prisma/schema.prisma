@@ -1,0 +1,109 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Side {
+  RED
+  BLACK
+}
+
+enum GameStatus {
+  WAITING
+  ACTIVE
+  FINISHED
+}
+
+enum ResultReason {
+  CHECKMATE
+  STALEMATE
+  RESIGNATION
+  DRAW_AGREEMENT
+  RULE_DRAW
+}
+
+model User {
+  id           String            @id @default(cuid())
+  username     String            @unique
+  passwordHash String
+  sessions     Session[]
+  participants GameParticipant[]
+  createdAt    DateTime          @default(now())
+}
+
+model GuestIdentity {
+  id           String            @id @default(cuid())
+  tokenHash    String            @unique
+  nickname     String?
+  sessions     Session[]
+  participants GameParticipant[]
+  claimedById  String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+model Session {
+  id              String         @id @default(cuid())
+  tokenHash       String         @unique
+  userId          String?
+  guestIdentityId String
+  expiresAt       DateTime
+  createdAt       DateTime       @default(now())
+  user             User?          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestIdentity    GuestIdentity  @relation(fields: [guestIdentityId], references: [id], onDelete: Cascade)
+}
+
+model Game {
+  id            String            @id @default(cuid())
+  code          String            @unique
+  replayToken   String            @unique @default(cuid())
+  status        GameStatus        @default(WAITING)
+  initialFen    String
+  currentFen    String
+  turn          Side              @default(RED)
+  ply           Int               @default(0)
+  winner        Side?
+  resultReason  ResultReason?
+  drawOfferedBy Side?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  participants  GameParticipant[]
+  moves         Move[]
+}
+
+model GameParticipant {
+  id              String         @id @default(cuid())
+  gameId          String
+  side            Side
+  nickname        String
+  userId          String?
+  guestIdentityId String
+  joinedAt        DateTime       @default(now())
+  game             Game           @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  user             User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  guestIdentity    GuestIdentity  @relation(fields: [guestIdentityId], references: [id], onDelete: Restrict)
+
+  @@unique([gameId, side])
+  @@unique([gameId, guestIdentityId])
+  @@index([userId])
+}
+
+model Move {
+  id         String   @id @default(cuid())
+  gameId     String
+  ply        Int
+  from       String
+  to         String
+  notation   String
+  fenAfter   String
+  createdAt  DateTime @default(now())
+  game       Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, ply])
+}

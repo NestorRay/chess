@@ -1,0 +1,22 @@
+{
+  "name": "xiangqi-online",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --parallel --filter @xiangqi/api --filter @xiangqi/web dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "test:e2e": "playwright test",
+    "db:generate": "pnpm --filter @xiangqi/api prisma:generate",
+    "db:migrate": "pnpm --filter @xiangqi/api prisma:migrate",
+    "db:push": "pnpm --filter @xiangqi/api prisma:push"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2"
+  }
+}
