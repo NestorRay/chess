@@ -20,7 +20,7 @@
 | 规则引擎 | Fairy-Stockfish / `ffish` |
 | 数据库 | PostgreSQL 17 |
 | 工程化 | TypeScript、pnpm workspace、Vitest、Playwright |
-| 部署 | Docker Compose、Caddy |
+| 部署 | Docker Compose、宿主机 nginx/Caddy 反向代理 |
 
 ## 项目结构
 
@@ -70,19 +70,38 @@ Vite 开发服务器会将 `/api` 和 `/socket.io` 请求代理到 API 服务。
 
 ## Docker 部署
 
-复制生产环境示例并填写域名、数据库密码和会话密钥：
+安装 Docker Engine 和 Compose 插件，将 `.env.production.example` 复制为 `.env`，将 `APP_ORIGIN` 改为实际 HTTPS 域名，并填写数据库密码和至少 32 字符的会话密钥，然后运行：
 
 ```bash
 cp .env.production.example .env
 docker compose up -d --build
 docker compose ps
-curl http://your-domain.example:8080/api/health
+curl https://your-domain.example/api/health
 ```
 
-Caddy 代理 HTTP 与 WebSocket；默认配置 `http://` 不启用 TLS（见 `.env.production.example` 的端口说明）。应用容器启动时会执行 `prisma migrate deploy`。
+项目只监听本机回环端口 `127.0.0.1:${HTTP_PORT}`（默认 8080），同一端口提供前端静态资源、API 与 Socket.IO；HTTPS 由同一台机器上的外部反代（nginx 或 Caddy）转发并终止。
 
-> 注意：`app` 容器只应通过 Caddy 对外暴露。若直接暴露 3000 端口，客户端可伪造 `X-Forwarded-For` 绕过按 IP 的登录限流。
-默认配置通过 Caddy 在 `HTTP_PORT=8080` 提供 HTTP 与 WebSocket 反向代理，不会自动启用 TLS。若要公开部署到互联网，请修改 `Caddyfile` 使用 HTTPS，并将应用容器的 `COOKIE_SECURE` 设置为 `true`。
+外部反代示例（nginx，指向同一台机器的 8080 端口）：
+
+```nginx
+server {
+  listen 443 ssl;
+  server_name chess.example.com;
+  # ssl_certificate / ssl_certificate_key ...
+
+  location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";  # WebSocket（/socket.io）
+  }
+}
+```
+
+> 注意：`HTTP_PORT` 只绑定 `127.0.0.1`，仅供本机反代访问。不要改成 `0.0.0.0` 直接暴露公网，否则客户端可伪造 `X-Forwarded-For` 绕过按 IP 的登录限流。
 
 应用容器启动时会自动执行 `prisma migrate deploy`。
 
@@ -118,6 +137,6 @@ pnpm test:e2e
 
 ## 安全与许可证说明
 
-- 会话使用随机 HttpOnly Cookie，数据库只保存 HMAC 摘要；Cookie 同时设置 SameSite=Lax。默认部署在 HTTP 上，`COOKIE_SECURE=false`；若通过 HTTPS 对外提供服务，请在 `.env` 中设置 `COOKIE_SECURE=true` 强制 Secure。
+- 会话使用随机 HttpOnly Cookie，数据库只保存 HMAC 摘要；Cookie 同时设置 SameSite=Lax。生产环境经外部反代以 HTTPS 对外访问，`.env.production.example` 中 `COOKIE_SECURE=true` 强制 Cookie 携带 Secure；本地纯 HTTP 直连测试时需改回 `false` 并同步调整 `APP_ORIGIN`。
 - 密码使用 Argon2id 哈希，所有 Socket 落子都重新校验身份、回合、棋步序号和规则。
 - `ffish` / Fairy-Stockfish 使用 GPL-3.0。自托管服务可以使用；若分发闭源软件或容器镜像，请先评估相应许可证义务。

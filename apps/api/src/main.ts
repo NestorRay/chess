@@ -8,7 +8,7 @@ import { AppModule } from "./app.module";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  // 生产环境由 Caddy 反代一层，按 X-Forwarded-For 取真实客户端 IP（供限流等使用）
+  // 生产环境由外部反代一层（trust proxy = 1），按 X-Forwarded-For 取真实客户端 IP（供限流等使用）
   app.set("trust proxy", 1);
   const origins = (process.env.APP_ORIGIN ?? "http://localhost:5173").split(",");
   app.use(helmet({
