@@ -25,25 +25,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-xiangqi}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-xiangqi}?schema=public
       SESSION_SECRET: ${SESSION_SECRET}
       APP_ORIGIN: ${APP_ORIGIN}
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
-    expose:
-      - "3000"
-
-  caddy:
-    image: caddy:2.10-alpine
-    restart: unless-stopped
-    depends_on:
-      - app
-    environment:
-      DOMAIN: ${DOMAIN}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
     ports:
-      - "${HTTP_PORT:-8080}:80"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      # 只绑定回环地址，由外部反代（nginx 等）转发并终止 HTTPS；
+      # 不要改成 0.0.0.0 直接暴露公网，否则可伪造 X-Forwarded-For 绕过按 IP 的登录限流
+      - "127.0.0.1:${HTTP_PORT:-8080}:3000"
 
 volumes:
   postgres_data:
-  caddy_data:
-  caddy_config:

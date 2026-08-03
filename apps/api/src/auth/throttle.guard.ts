@@ -13,7 +13,7 @@ const MAX_ENTRIES = 10_000;
 
 /**
  * 内存滑动窗口限流，用于登录/注册等口令相关端点，按来源 IP 计数。
- * 生产部署信任一层 Caddy 反代（main.ts 中 trust proxy = 1），req.ip 取真实客户端地址；
+ * 生产部署信任一层外部反代（main.ts 中 trust proxy = 1），req.ip 取真实客户端地址；
  * 多副本/多网关部署应由负载均衡或网关层统一限流。
  */
 @Injectable()
